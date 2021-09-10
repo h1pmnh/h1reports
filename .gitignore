@@ -1,0 +1,4 @@
+output
+*.json
+*.csv
+.obsidian

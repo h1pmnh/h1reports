@@ -1,0 +1,343 @@
+#!/usr/bin/python3
+#
+# h1reports was developed to allow researchers with many reports on HackerOne to 
+# retrieve these reports for their own personal use and analysis. REMINDER that 
+# non-disclosed reports are PRIVATE and should never be shared publicly. Please
+# consult the platform Code of Conduct and any relevant NDAs. The author disclaims
+# any responsibility for misuse of this program.
+#
+# Authors: pmnh (h1pmnh)
+#
+# MIT License
+# 
+# Copyright (c) 2021 pmnh
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+from jinja2 import Environment, FileSystemLoader
+import pprint
+import requests
+import json
+import argparse
+import os
+import csv
+from datetime import datetime
+
+env = Environment(
+    loader=FileSystemLoader("templates"),
+    lstrip_blocks=True
+)
+
+def get_all_reports(args):
+    page = 1
+    reports = []
+    print(" [+] Downloading reports...")
+    while (True):
+        resp = requests.get("https://api.hackerone.com/v1/hackers/me/reports?page[number]=%d" % page, auth=(args.username, args.api_key), headers={"Accept":"application/json"})
+        if resp.status_code != 200:
+            print("ERROR: Status code was %d and response was %s" % (resp.status_code, resp.text))
+            exit(1)
+        
+        this_page = json.loads(resp.text)
+        reports += this_page['data']
+
+        # print(this_page['links'])
+        print ("  [+] Got %d reports" % len(reports))
+        if not 'next' in this_page['links']:
+            break
+        else:
+            page += 1
+    # got all the reports
+    
+    with open("%s/all_reports.json" % args.directory, "w") as f:
+        f.write(json.dumps(reports, indent=2))
+    return reports
+
+def get_one_report(id, program, args):
+    print(" [+] Getting report %d" % id)
+    filename = "%s/report_%d.json" % (get_path_for_report(None, args.directory, program=program), id)
+    if args.resume and os.path.exists(filename):
+        print("  [+] Resuming from saved JSON")
+        with open(filename, "r") as f:
+            this_report = json.load(f)
+    else:
+        resp = requests.get("https://api.hackerone.com/v1/hackers/reports/%d" % id, auth=(args.username, args.api_key), headers={"Accept":"application/json"})
+        if resp.status_code != 200:
+            print("ERROR: Status code was %d and response was %s" % (resp.status_code, resp.text))
+            exit(1)
+        
+        this_report = json.loads(resp.text)["data"]
+        with open(filename, "w") as f:
+            f.write(json.dumps(this_report, indent=2))
+
+    return this_report
+
+def find_or_none(element, json, default=None):
+    keys = element.split('.')
+    rv = json
+    for key in keys:
+        if key in rv:
+            rv = rv[key]
+        else:
+            rv = default
+            break
+    return rv
+
+## map of flattened column name to JSON (dict) path, because the JSON is pretty complex and having a flat structure
+## for summarization makes things easier
+summary_field_mapping = [
+    ["id", "id"],
+    ["title", "attributes.title"],
+    ["created_at", "attributes.created_at"],
+    ["triaged_at", "attributes.triaged_at"],
+    ["bounty_awarded_at", "attributes.bounty_awarded_at"],
+    ["status", "attributes.state"],
+    ["original_report", "attributes.vulnerability_information"],
+    ["reporter", "relationships.reporter.data.attributes.username"],
+    ["program", "relationships.program.data.attributes.handle"],
+    ["severity", "relationships.severity.data.attributes.rating"],
+    ["vulnerability_class", "relationships.weakness.data.attributes.name"],
+    ["cwe", "relationships.weakness.data.attributes.external_id"],
+    ["target", "relationships.structured_scope.data.attributes.asset_identifier"]
+]
+
+## this function deals with report summary objects to avoid issues with JSON
+def get_path_for_report(report, directory, program=None):
+    # create a directory by program name
+    if not program:
+        program = find_or_none("relationships.program.data.attributes.handle", report)
+    path = directory + "/" + program
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def get_path_for_program(program, directory):
+    # create a directory by program name
+    path = directory + "/" + program
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def get_attachment_path_for_report(report, directory):
+    program = find_or_none("relationships.program.data.attributes.handle", report)
+    path = directory + "/" + program + "/attachments"
+    os.makedirs(path, exist_ok=True)
+    return path
+
+image_extensions = [".png",".gif",".jpg",".jpeg"]
+
+def get_all_report_markdown(report, attachment_map):
+
+    # all_markdown = ""
+    # all_markdown += find_or_none("attributes.vulnerability_information",report)
+    # ## get any comments
+    # all_activities = find_or_none("relationships.activities.data", report)
+    # if all_activities:
+    #     for activity in all_activities:
+    #         all_markdown += "---\n" ## HR between comments?
+    #         all_markdown += find_or_none("type", activity)
+    #         all_markdown += " at "
+    #         all_markdown += find_or_none("attributes.created_at", activity)
+    #         all_markdown += " by "
+    #         all_markdown += find_or_none("relationships.actor.data.attributes.username", activity)
+    #         all_markdown += "\n\n"
+    #         if find_or_none("attributes.message", activity): # message can be null on a severity change update
+    #             all_markdown += find_or_none("attributes.message", activity)
+    #             all_markdown += "\n\n"
+    template = env.get_template("report_markdown.jinja")
+    all_markdown = template.render(report=report)
+    ## now look for attachment references and resolve
+    for id in attachment_map:
+        path = attachment_map[id]
+        replacement_markdown="[%s](%s)"
+
+        # if it's an image, make an image link, otherwise a straight link
+        for ext in image_extensions:
+            if path.endswith(ext):
+                replacement_markdown="![%s](%s)"
+                break
+        
+        print("  [+] Fixing attachment reference {%s}" % id)
+        all_markdown = all_markdown.replace("{%s}" % id, replacement_markdown % (path.split('/')[-1], path))
+
+    return all_markdown
+
+def get_markdown_filename(report, directory):
+    return "%s/report_%s.md" % (get_path_for_report(report, directory), report['id'])
+
+def get_program_index_filename(program, directory):
+    return "%s/index.md" % (get_path_for_program(program, directory))
+
+def get_top_index_filename(directory):
+    return "%s/index.md" % (directory)
+
+def save_markdown(report, markdown, directory):
+    filename = get_markdown_filename(report, directory)
+    with open(filename, "wb") as f:
+        f.write(markdown.encode('utf8'))
+    return filename
+
+def get_attachment_filename(report, id, filename, directory, relative=False):
+    if relative:
+        return "attachments/%s_%s" % (id, filename)
+    else:
+        return "%s/%s_%s" % (get_attachment_path_for_report(report, directory), id, filename)
+
+def save_attachment(report, id, filename, content, directory):
+    target_filename = get_attachment_filename(report, id, filename, directory)
+    with open(target_filename, "wb") as f:
+        f.write(content)
+    return target_filename
+
+def download_all_attachments(report, directory):
+    attachment_map = {}
+    all_attachments = find_or_none("relationships.attachments.data", report)
+    if all_attachments:
+        for attachment in all_attachments:
+            id = attachment["id"]
+            filename = find_or_none("attributes.file_name", attachment)
+            target_filename = get_attachment_filename(report, id, filename, directory, relative=True)
+            attachment_map["F%s" % id] = target_filename
+            if os.path.exists(get_attachment_filename(report, id, filename, directory)):
+                print("  [+] Attachment %s exists, skipping download" % id)
+            else:
+                print("  [+] Downloading attachment %s" % id)
+                resp = requests.get(find_or_none("attributes.expiring_url", attachment))
+                if resp.status_code != 200:
+                    print("ERROR: Status code for attachment %d was %d and response was %s" % (id, resp.status_code, resp.text))
+                    continue
+                else:
+                    save_attachment(report, id, filename, resp.content, directory)
+    
+    return attachment_map
+
+
+def add_report_to_program_index(index, report):
+    program_name = find_or_none("relationships.program.data.attributes.handle", report)
+    if not program_name in index:
+        index[program_name] = []
+    
+    index[program_name].append(report)
+
+def add_report_to_weakness_index(index, report):
+    weakness_name = find_or_none("relationships.weakness.data.attributes.name", report)
+    if weakness_name is None:
+        weakness_name = "None (N/A)"
+
+    if not weakness_name in index:
+        index[weakness_name] = []
+    
+    index[weakness_name].append(report)
+
+def build_program_index(program, reports, program_summary):
+    template = env.get_template("program_index_markdown.jinja")
+    all_markdown = template.render(program_name=program, reports=reports, program_summary=program_summary)
+    return all_markdown
+
+def save_program_index_markdown(markdown, program, directory):
+    filename = get_program_index_filename(program, directory)
+    with open(filename, "wb") as f:
+        f.write(markdown.encode('utf8'))
+
+def build_top_index(program_index, weakness_index, program_summary, weakness_summary):
+    sorted_programs = sorted(program_index.keys())
+    sorted_weaknesses = sorted(weakness_index.keys())
+    template = env.get_template("top_index_markdown.jinja")
+    all_markdown = template.render(sorted_programs=sorted_programs, program_index=program_index, sorted_weaknesses=sorted_weaknesses,weakness_index=weakness_index,date=datetime.now(),program_summary=program_summary,weakness_summary=weakness_summary)
+    return all_markdown
+
+def save_top_index_markdown(markdown, directory):
+    filename = get_top_index_filename(directory)
+    with open(filename, "wb") as f:
+        f.write(markdown.encode('utf8'))
+
+def summarize_program(reports):
+    summary_by_key = {"severities":{"critical":[],"high":[],"medium":[],"low":[],"other":[]},"bounty":0.0,"bonus":0.0}
+    for report in reports:
+        sev = report['summary']['severity']
+        if not sev in summary_by_key['severities']:
+            sev = "other"
+        summary_by_key['severities'][sev].append(report)
+        summary_by_key["bounty"] += report['summary']['bounty']
+        summary_by_key["bonus"] += report['summary']['bonus']
+    return summary_by_key
+
+def summarize_by_keys(index):
+    # for each key, roll up bounties and bugs by severity
+    summaries = {}
+    for key in index:
+        summaries[key] = summarize_program(index[key])
+    return summaries
+
+def generate_report_summary(report):
+    summary = {}
+    for (key, lookup) in summary_field_mapping:
+        summary[key] = find_or_none(lookup, report)
+    summary["id"] = int(summary["id"])
+    # roll up bounties and bonuses
+    total_bounty = 0.0
+    total_bonus = 0.0
+    for bounty in find_or_none("relationships.bounties.data", report):
+        total_bounty += float(bounty['attributes']['amount'])
+        total_bonus += float(bounty['attributes']['bonus_amount'])
+
+    summary['bounty'] = total_bounty
+    summary['bonus'] = total_bonus
+    # print(summary)
+    return summary
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a", "--api_key", help="Your API key for HackerOne API (NOT session cookie)", required=True)
+    parser.add_argument("-u", "--username", help="Your HackerOne username (e.g. pmnh)", required=True)
+    parser.add_argument("-d", "--directory", help="Output directory", default="output", required=False)
+    parser.add_argument('--resume', help="Resume previous scan (don't re-download content)", action='store_true')
+
+    args = parser.parse_args()
+    reports = get_all_reports(args)
+    # with open("all_reports.json") as f:
+    #     reports = json.load(f)
+    
+    reports_by_program = {} # program slug -> array of reports
+    reports_by_vulnerability = {} # vulnerability e.g. "Stored XSS" -> array of reports
+
+    for report in reports:
+        # print(report_summary)
+        one_report_json = get_one_report(int(report["id"]), find_or_none("relationships.program.data.attributes.handle", report), args)
+        report_summary = generate_report_summary(one_report_json)
+        one_report_json['summary'] = report_summary
+        # we use the report summary for most lookups and calculations as well as easier reference in templates
+        attachment_map = download_all_attachments(one_report_json, args.directory)
+        combined_markdown = get_all_report_markdown(one_report_json, attachment_map)
+        print("  [+] Generating Markdown")
+        markdown_filename = save_markdown(one_report_json, combined_markdown, args.directory)
+        add_report_to_program_index(reports_by_program, one_report_json)
+        add_report_to_weakness_index(reports_by_vulnerability, one_report_json)
+
+    for program in reports_by_program:
+        # write program index page
+        print (" [+] Building program summary for %s" % program)
+        program_summary = summarize_program(reports_by_program[program])
+        program_index_markdown = build_program_index(program, reports_by_program[program], program_summary)
+        save_program_index_markdown(program_index_markdown, program, args.directory)
+
+    # now build the top index
+    print(" [+] Saving top index")
+    summary_by_program = summarize_by_keys(reports_by_program)
+    summary_by_vulnerability = summarize_by_keys(reports_by_vulnerability)
+    top_index_markdown = build_top_index(reports_by_program, reports_by_vulnerability, summary_by_program, summary_by_vulnerability)
+    save_top_index_markdown(top_index_markdown, args.directory)

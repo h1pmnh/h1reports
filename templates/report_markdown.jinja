@@ -1,0 +1,29 @@
+[Index](../index.md) - [{{report.relationships.program.data.attributes.handle}} Index](./index.md)
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **
+---
+
+# Report {{report.id}} {{report.attributes.title}}
+
+Program: {{report.relationships.program.data.attributes.handle}}
+Severity: {{report.relationships.severity.data.attributes.rating}}
+Weakness: {{report.summary.vulnerability_class}}
+Bounty (Bonus): {{"${:,.2f}".format(report.summary.bounty)}} ({{"${:,.2f}".format(report.summary.bonus)}})
+
+{{report.attributes.vulnerability_information}}
+
+{% for activity in report.relationships.activities.data %}
+---
+{{activity.type}} at {{activity.attributes.created_at}} by {{activity.relationships.actor.data.attributes.username}}
+
+{{activity.attributes.message}}
+   
+{% endfor %}
+
+
+---
+[View JSON Source](./report_{{report.id}}.json)
+
+---
+[Index](../index.md) - [{{report.relationships.program.data.attributes.handle}} Index](./index.md)
+
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **

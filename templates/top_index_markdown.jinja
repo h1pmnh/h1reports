@@ -1,0 +1,23 @@
+# H1 Report Index
+
+Built on {{date}} by [h1reports](https://github.com/h1pmnh/h1reports)
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **
+
+## Index by Program
+
+{% for program in sorted_programs %}
+ * [{{program}} Index]({{program}}/index.md) ({{program_index[program] | length}} report(s)) - {{"${:,.2f}".format(program_summary[program].bounty)}} ({{"${:,.2f}".format(program_summary[program].bonus)}})
+{% endfor %}
+
+## Index by Vulnerability Class
+
+{% for vuln in sorted_weaknesses %}
+### {{vuln}} ({{weakness_index[vuln] | length}} report(s)) - {{"${:,.2f}".format(weakness_summary[vuln].bounty + weakness_summary[vuln].bonus)}})
+ {% for report in weakness_index[vuln] %}
+ * [{{report.id}} {{report.attributes.title}}](./{{report.relationships.program.data.attributes.handle}}/report_{{report.id}}.md)
+ {% endfor %}
+{% endfor %}
+
+---
+
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **

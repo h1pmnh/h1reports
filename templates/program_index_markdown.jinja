@@ -1,0 +1,25 @@
+[Index](../index.md)
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **
+
+---
+
+# {{program_name}} Index
+
+Total Bounty (Bonus): {{"${:,.2f}".format(program_summary.bounty + program_summary.bonus)}}
+Severity Summary: 
+
+| Critical | High | Medium | Low | Other |
+|----------|------|--------|-----|-------|
+| {{program_summary.severities.critical | length}} | {{program_summary.severities.high | length}} | {{program_summary.severities.medium | length}}  | {{program_summary.severities.low | length}}  | {{program_summary.severities.other | length}} |
+
+{% for report in reports %}
+[{{report.id}} {{report.attributes.title}}](./report_{{report.id}}.md) ({{report.relationships.severity.data.attributes.rating}})
+{% endfor %}
+
+---
+
+[Index](../index.md)
+
+---
+
+** This site contains CONFIDENTIAL information protected under NDA. Do not distribute. **
