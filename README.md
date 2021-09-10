@@ -70,6 +70,10 @@ Note that reports will always be downloaded, but since attachments can't be chan
 
 If you encounter an error during a run and wish to resume, add the `--resume` option. This will skip downloading individual reports if they are already cached on the local filesystem.
 
+## Customization
+
+The markdown is generated with Jinja templates, you can customize the layout if you wish by editing the templates in the `templates` directory. If you do something really interesting please submit an issue :)
+
 ## Feedback
 
 This is a new tool and I'm excited to contribute it to the community! Please contact me on Twitter [@h1pmnh](https://twitter.com/h1pmnh) for feedback

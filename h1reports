@@ -141,23 +141,6 @@ def get_attachment_path_for_report(report, directory):
 image_extensions = [".png",".gif",".jpg",".jpeg"]
 
 def get_all_report_markdown(report, attachment_map):
-
-    # all_markdown = ""
-    # all_markdown += find_or_none("attributes.vulnerability_information",report)
-    # ## get any comments
-    # all_activities = find_or_none("relationships.activities.data", report)
-    # if all_activities:
-    #     for activity in all_activities:
-    #         all_markdown += "---\n" ## HR between comments?
-    #         all_markdown += find_or_none("type", activity)
-    #         all_markdown += " at "
-    #         all_markdown += find_or_none("attributes.created_at", activity)
-    #         all_markdown += " by "
-    #         all_markdown += find_or_none("relationships.actor.data.attributes.username", activity)
-    #         all_markdown += "\n\n"
-    #         if find_or_none("attributes.message", activity): # message can be null on a severity change update
-    #             all_markdown += find_or_none("attributes.message", activity)
-    #             all_markdown += "\n\n"
     template = env.get_template("report_markdown.jinja")
     all_markdown = template.render(report=report)
     ## now look for attachment references and resolve
