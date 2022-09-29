@@ -291,6 +291,10 @@ if __name__ == "__main__":
     parser.add_argument('--resume', help="Resume previous scan (don't re-download content)", action='store_true')
 
     args = parser.parse_args()
+    if not os.path.exists(args.directory):
+        print(" [+] Creating output directory %s" % args.directory)
+        os.makedirs(args.directory)
+
     reports = get_all_reports(args)
     # with open("all_reports.json") as f:
     #     reports = json.load(f)
